@@ -92,12 +92,13 @@ body {
   color: var(--sub); letter-spacing: 0.08em; margin-top: 0.8em;
 }
 /* 縦長は幅いっぱい、横長は高さも見て大きさを決める */
-.stage.port .time { font-size: 20cqw; }
-.stage.land .time { font-size: min(19cqw, 30cqh); }   /* 横長は高さが低いので、下のボタン列と重ならない大きさにする */
+/* --clock-scale は「サイズ」のつまみの値（0.4〜1）。1 のときが画面に収まる最大の大きさ */
+.stage.port .time { font-size: calc(20cqw * var(--clock-scale, 1)); }
+.stage.land .time { font-size: calc(min(19cqw, 30cqh) * var(--clock-scale, 1)); }   /* 横長は高さが低いので、下のボタン列と重ならない大きさにする */
 .stage.land .hint { display: none; }                 /* 横長はボタン列を低くするため、案内の一文を出さない */
 .stage.land .controls { padding-top: 0; row-gap: 6px; }
 .time .sec, .ampm { font-size: 0.42em; }
-.date { font-size: max(13px, 3.6cqmin); }
+.date { font-size: max(11px, calc(3.6cqmin * var(--clock-scale, 1))); }   /* 日付も時刻と一緒に大きさを変える */
 
 /* 下のボタン列 */
 .controls {
@@ -137,7 +138,11 @@ body {
   background: var(--bg); border: 0; border-radius: 999px;
   padding: 8px 6px; cursor: pointer; max-width: 46vw;
 }
-select:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+/* サイズのつまみ（スライダー） */
+.pick.size { padding-right: 12px; }
+.pick input[type="range"] { width: 110px; accent-color: var(--fg); cursor: pointer; }
+.pick output { min-width: 3.2em; text-align: right; color: var(--fg); font-variant-numeric: tabular-nums; }
+select:focus-visible, input:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 .hint { width: 100%; text-align: center; font-size: 11px; color: var(--sub); }
 
@@ -175,6 +180,10 @@ button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
     <label class="pick">日付
       <select id="date-select"></select>
     </label>
+    <label class="pick size">サイズ
+      <input type="range" id="size-range" min="40" max="100" step="5" value="100">
+      <output id="size-value" for="size-range">100%</output>
+    </label>
     <div class="hint">時計をタップするとボタンを隠せます</div>
   </div>
 </div>
@@ -183,7 +192,7 @@ button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 // ---------- 設定（ブラウザに保存して、次に開いたときも同じにする） ----------
 // 引数: なし / 戻り値: 保存済みの設定（なければ初期値）
 function loadSettings() {
-  const defaults = { orient: "auto", fmt: "24", theme: "auto", font: "Chivo Mono", dateFmt: "slash" };
+  const defaults = { orient: "auto", fmt: "24", theme: "auto", font: "Chivo Mono", dateFmt: "slash", size: 100 };
   try {
     const saved = JSON.parse(localStorage.getItem("clock-settings") || "{}");
     return Object.assign(defaults, saved);
@@ -235,6 +244,20 @@ function applyFont() {
   root.setProperty("--num-weight", f.weight);
 }
 applyFont();
+
+// ---------- 時計のサイズ ----------
+// 考え方: つまみの値（40〜100%）を 0.4〜1 の倍率にして、CSS の変数 --clock-scale に入れる。
+//         CSS 側で「最大の大きさ × 倍率」を文字の大きさにしている。
+const sizeRange = document.getElementById("size-range");
+const sizeValue = document.getElementById("size-value");
+// 引数: なし / 戻り値: なし
+function applySize() {
+  settings.size = Math.min(100, Math.max(40, Number(settings.size) || 100));   // 範囲外の値が保存されていても直す
+  document.documentElement.style.setProperty("--clock-scale", settings.size / 100);
+  sizeRange.value = settings.size;
+  sizeValue.textContent = settings.size + "%";
+}
+applySize();
 
 // ---------- 日付の表示形式 ----------
 // id: 保存用の名前 / label: プルダウンに出す見本 / format: 日付 → 文字列に変える関数
@@ -341,6 +364,13 @@ dateSelect.addEventListener("change", () => {
   lastSecond = -1;          // 次の描画で日付をすぐ書き直す
   saveSettings(settings);
 });
+
+// サイズのつまみ: 動かしている間はすぐ大きさを変え、指を離したら保存する
+sizeRange.addEventListener("input", () => {
+  settings.size = Number(sizeRange.value);
+  applySize();
+});
+sizeRange.addEventListener("change", () => saveSettings(settings));
 
 // 時計部分をタップ → ボタン列を隠す／出す
 document.querySelector(".face").addEventListener("click", () => {
