@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>モノクロ時計</title>
+<!-- PWA の設定: アプリの名前・アイコンなどは manifest.webmanifest に書いてある -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0b0b0c">
+<!-- iPhone 用: ホーム画面のアイコンと、アドレスバーを消して起動する設定 -->
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="時計">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chivo+Mono:wght@200;400&family=IBM+Plex+Mono:wght@200&family=JetBrains+Mono:wght@200&family=Roboto+Mono:wght@200&family=DM+Mono:wght@300&family=Space+Mono&family=Share+Tech+Mono&family=Orbitron:wght@400&family=Major+Mono+Display&family=Noto+Sans+JP:wght@400;500&display=swap">
+<style>
+/* レイアウト: 画面いっぱいの「ステージ」1枚。真ん中にデジタル時計、下にボタン列 */
+:root {
+  --bg: #ffffff;        /* 背景 */
+  --fg: #111111;        /* 時刻の文字 */
+  --sub: #6b6e73;       /* 補助の文字（秒・日付） */
+  --line: #d9dbde;      /* ボタン枠 */
+  --accent: #111111;    /* 選択中ボタン */
+  --accent-fg: #ffffff; /* 選択中ボタンの文字 */
+  --font-num: "Chivo Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-ui: "Noto Sans JP", system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b0b0c; --fg: #f2f2f2; --sub: #8d9096; --line: #2c2e31;
+    --accent: #f2f2f2; --accent-fg: #0b0b0c; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b0b0c; --fg: #f2f2f2; --sub: #8d9096; --line: #2c2e31;
+  --accent: #f2f2f2; --accent-fg: #0b0b0c; color-scheme: dark;
+}
+
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  overflow: hidden;              /* 時計は1画面で完結させるのでスクロールなし */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ステージ: 時計とボタンをまとめた箱。強制回転のときはこの箱ごと90度回す */
+.stage {
+  position: fixed;
+  top: 50%; left: 50%;
+  width: 100%; height: 100%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  grid-template-rows: 1fr auto;
+  container-type: size;          /* 中の文字サイズを、この箱の大きさ基準（cq 単位）で決める */
+  /* 上下は、スマホのノッチ（画面上部の切り欠き）やホームバーにかからないように空ける */
+  padding-top: max(12px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  box-sizing: border-box;
+}
+.stage.rotated { transform: translate(-50%, -50%) rotate(90deg); }
+
+/* 時計エリア: 真ん中に置く */
+.face {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+
+/* デジタル時計 */
+.digital { text-align: center; min-width: 0; }
+.time {
+  font-family: var(--font-num);
+  font-weight: var(--num-weight, 200);   /* 太さはフォントごとに JavaScript で設定する */
+  font-variant-numeric: tabular-nums;   /* 数字の幅をそろえて、秒が変わっても文字がぶれないようにする */
+  line-height: 1;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.time .sec { color: var(--sub); }
+.ampm { font-family: var(--font-num); color: var(--sub); }
+.date { color: var(--sub); letter-spacing: 0.08em; margin-top: 0.8em; }
+/* 縦長は幅いっぱい、横長は高さも見て大きさを決める */
+.stage.port .time { font-size: 20cqw; }
+.stage.land .time { font-size: min(19cqw, 42cqh); }
+.time .sec, .ampm { font-size: 0.42em; }
+.date { font-size: max(13px, 3.6cqmin); }
+
+/* 下のボタン列 */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 14px;
+  padding-top: 10px;
+  transition: opacity .25s;
+}
+.controls.hide { opacity: 0; pointer-events: none; }
+.group { display: flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.group button {
+  font: 500 12px/1 var(--font-ui);
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  padding: 9px 12px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+}
+.group button + button { border-left: 1px solid var(--line); }
+.group button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+
+/* フォント・日付の選択欄（項目が多いので、ボタンではなくプルダウンにする） */
+.pick {
+  display: flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line); border-radius: 999px;
+  padding: 0 4px 0 12px;
+  font: 500 12px/1 var(--font-ui); color: var(--sub); letter-spacing: 0.04em;
+}
+.pick select {
+  font: 500 12px/1 var(--font-ui); color: var(--fg);
+  background: var(--bg); border: 0; border-radius: 999px;
+  padding: 8px 6px; cursor: pointer; max-width: 46vw;
+}
+select:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.hint { width: 100%; text-align: center; font-size: 11px; color: var(--sub); }
+
+@media (prefers-reduced-motion: reduce) { .controls { transition: none; } }
+</style>
+</head>
+<body>
+
+<div class="stage port" id="stage">
+  <div class="face">
+    <div class="digital">
+      <div class="time" id="time" role="timer" aria-live="off">--:--<span class="sec">:--</span></div>
+      <div class="date" id="date">----</div>
+    </div>
+  </div>
+
+  <div class="controls" id="controls">
+    <div class="group" role="group" aria-label="画面の向き">
+      <button type="button" id="o-auto" data-orient="auto">自動</button>
+      <button type="button" id="o-port" data-orient="port">縦</button>
+      <button type="button" id="o-land" data-orient="land">横</button>
+    </div>
+    <div class="group" role="group" aria-label="時刻の表し方">
+      <button type="button" id="f-24" data-fmt="24">24h</button>
+      <button type="button" id="f-12" data-fmt="12">12h</button>
+    </div>
+    <div class="group" role="group" aria-label="画面の色">
+      <button type="button" id="t-auto" data-theme-btn="auto">端末に合わせる</button>
+      <button type="button" id="t-light" data-theme-btn="light">ホワイト</button>
+      <button type="button" id="t-dark" data-theme-btn="dark">ダーク</button>
+    </div>
+    <label class="pick">フォント
+      <select id="font-select"></select>
+    </label>
+    <label class="pick">日付
+      <select id="date-select"></select>
+    </label>
+    <div class="hint">時計をタップするとボタンを隠せます</div>
+  </div>
+</div>
+
+<script>
+// ---------- 設定（ブラウザに保存して、次に開いたときも同じにする） ----------
+// 引数: なし / 戻り値: 保存済みの設定（なければ初期値）
+function loadSettings() {
+  const defaults = { orient: "auto", fmt: "24", theme: "auto", font: "Chivo Mono", dateFmt: "slash" };
+  try {
+    const saved = JSON.parse(localStorage.getItem("clock-settings") || "{}");
+    return Object.assign(defaults, saved);
+  } catch (e) {
+    return defaults;   // 保存が使えない環境（プライベートウィンドウなど）でも動かす
+  }
+}
+// 引数: settings（設定のオブジェクト） / 戻り値: なし
+function saveSettings(settings) {
+  try { localStorage.setItem("clock-settings", JSON.stringify(settings)); } catch (e) {}
+}
+
+const settings = loadSettings();
+const stage = document.getElementById("stage");
+
+// ---------- ホワイト／ダークの切り替え ----------
+// 考え方:
+//   <html> に data-theme="light" か "dark" を付けると、CSS の色（--bg など）がその色に切り替わる。
+//   "auto" のときは data-theme を外し、端末（OS）の明るさ設定に合わせる。
+// 引数: なし / 戻り値: なし
+function applyTheme() {
+  if (settings.theme === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", settings.theme);
+}
+applyTheme();   // 最初の表示の前に色を決めておく
+
+// ---------- フォントの切り替え ----------
+// 候補の一覧。family: フォント名 / weight: 太さ（そのフォントで用意されている一番細いもの）
+const FONTS = [
+  { family: "Chivo Mono",         weight: 200 },
+  { family: "IBM Plex Mono",      weight: 200 },
+  { family: "JetBrains Mono",     weight: 200 },
+  { family: "Roboto Mono",        weight: 200 },
+  { family: "DM Mono",            weight: 300 },
+  { family: "Space Mono",         weight: 400 },
+  { family: "Share Tech Mono",    weight: 400 },
+  { family: "Orbitron",           weight: 400 },
+  { family: "Major Mono Display", weight: 400 },
+];
+// 保存されていたフォントが一覧にないとき（名前の変更など）は最初のものに戻す
+if (!FONTS.some(f => f.family === settings.font)) settings.font = FONTS[0].family;
+
+// 考え方: CSS の変数 --font-num（時刻と日付のフォント）と --num-weight（太さ）を書き換える
+// 引数: なし / 戻り値: なし
+function applyFont() {
+  const f = FONTS.find(f => f.family === settings.font);
+  const root = document.documentElement.style;
+  root.setProperty("--font-num", `"${f.family}", ui-monospace, "SF Mono", Menlo, Consolas, monospace`);
+  root.setProperty("--num-weight", f.weight);
+}
+applyFont();
+
+// ---------- 日付の表示形式 ----------
+// id: 保存用の名前 / label: プルダウンに出す見本 / format: 日付 → 文字列に変える関数
+const WEEK_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEK_JA = ["日", "月", "火", "水", "木", "金", "土"];
+const MONTH_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const DATE_FORMATS = [
+  { id: "slash", label: "2026/11/03 (Tue)",
+    format: d => `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} (${WEEK_EN[d.getDay()]})` },
+  { id: "ja",    label: "2026年11月3日（火）",
+    format: d => `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（${WEEK_JA[d.getDay()]}）` },
+  { id: "us",    label: "Tue, Nov 3, 2026",
+    format: d => `${WEEK_EN[d.getDay()]}, ${MONTH_EN[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}` },
+  { id: "iso",   label: "2026-11-03",
+    format: d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` },
+];
+if (!DATE_FORMATS.some(f => f.id === settings.dateFmt)) settings.dateFmt = DATE_FORMATS[0].id;
+
+// プルダウンの中身を作り、今の設定を選んだ状態にする
+const fontSelect = document.getElementById("font-select");
+const dateSelect = document.getElementById("date-select");
+FONTS.forEach(f => fontSelect.add(new Option(f.family, f.family)));
+DATE_FORMATS.forEach(f => dateSelect.add(new Option(f.label, f.id)));
+fontSelect.value = settings.font;
+dateSelect.value = settings.dateFmt;
+
+// ---------- 時刻を描く ----------
+const timeEl = document.getElementById("time");
+const dateEl = document.getElementById("date");
+let lastSecond = -1;
+
+// 引数: n（数値） / 戻り値: 2桁の文字列（例 7 → "07"）
+const pad = n => String(n).padStart(2, "0");
+
+// 引数: なし / 戻り値: なし（毎フレーム呼ばれて、秒が変わったときだけ数字を書き換える）
+function tick() {
+  const now = new Date();
+  if (now.getSeconds() !== lastSecond) {
+    lastSecond = now.getSeconds();
+    let hours = now.getHours();
+    let suffix = "";
+    if (settings.fmt === "12") {
+      suffix = hours < 12 ? "AM" : "PM";
+      hours = hours % 12 || 12;              // 0時は12時と表示する
+    }
+    timeEl.innerHTML =
+      `${settings.fmt === "12" ? hours : pad(hours)}:${pad(now.getMinutes())}` +
+      `<span class="sec">:${pad(now.getSeconds())}</span>` +
+      (suffix ? ` <span class="ampm">${suffix}</span>` : "");
+    // 選ばれている表示形式で日付を書く
+    dateEl.textContent = DATE_FORMATS.find(f => f.id === settings.dateFmt).format(now);
+  }
+  requestAnimationFrame(tick);
+}
+
+// ---------- 縦・横の切り替え ----------
+// 考え方:
+//   画面そのものが横長か縦長か（screenIsLand）と、表示したい向き（want）を比べる。
+//   違っていたら、ステージの幅と高さを入れ替えて 90 度回す。
+//   これで、スマホの「画面回転ロック」がオンでも横向き表示にできる。
+// 引数: なし / 戻り値: なし
+function layout() {
+  const W = document.body.clientWidth;
+  const H = document.body.clientHeight;
+  const screenIsLand = W > H;
+  const want = settings.orient === "auto" ? (screenIsLand ? "land" : "port") : settings.orient;
+  const rotate = (want === "land") !== screenIsLand;
+
+  stage.style.width  = (rotate ? H : W) + "px";
+  stage.style.height = (rotate ? W : H) + "px";
+  stage.classList.toggle("rotated", rotate);
+  stage.classList.toggle("land", want === "land");
+  stage.classList.toggle("port", want === "port");
+}
+
+// ---------- ボタン ----------
+// 引数: なし / 戻り値: なし（選ばれているボタンを黒く塗る）
+function refreshButtons() {
+  document.querySelectorAll("[data-orient]").forEach(b => b.setAttribute("aria-pressed", b.dataset.orient === settings.orient));
+  document.querySelectorAll("[data-fmt]").forEach(b => b.setAttribute("aria-pressed", b.dataset.fmt === settings.fmt));
+  document.querySelectorAll("[data-theme-btn]").forEach(b => b.setAttribute("aria-pressed", b.dataset.themeBtn === settings.theme));
+}
+
+document.getElementById("controls").addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.orient) settings.orient = b.dataset.orient;
+  if (b.dataset.fmt)    settings.fmt = b.dataset.fmt;
+  if (b.dataset.themeBtn) { settings.theme = b.dataset.themeBtn; applyTheme(); }
+  lastSecond = -1;          // 12h/24h を変えたらすぐ数字を書き直す
+  saveSettings(settings);
+  refreshButtons();
+  layout();
+});
+
+// プルダウンで選び直したとき
+fontSelect.addEventListener("change", () => {
+  settings.font = fontSelect.value;
+  applyFont();
+  saveSettings(settings);
+});
+dateSelect.addEventListener("change", () => {
+  settings.dateFmt = dateSelect.value;
+  lastSecond = -1;          // 次の描画で日付をすぐ書き直す
+  saveSettings(settings);
+});
+
+// 時計部分をタップ → ボタン列を隠す／出す
+document.querySelector(".face").addEventListener("click", () => {
+  document.getElementById("controls").classList.toggle("hide");
+});
+
+// 画面が勝手に消えないようにお願いする（許可されない環境では無視）
+let wakeLock = null;
+async function keepAwake() {
+  try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (e) {}
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") keepAwake();
+});
+
+// スマホを回したとき・ウィンドウの大きさが変わったときに並べ直す
+window.addEventListener("resize", layout);
+
+refreshButtons();
+layout();
+keepAwake();
+requestAnimationFrame(tick);
+
+// ---------- PWA: Service Worker を登録する ----------
+// Service Worker（sw.js）は、ページのファイルをスマホの中に保存して、電波がなくても開けるようにするプログラム。
+// HTTPS のページ（または PC 上の localhost）でしか動かないので、使えない環境では何もしない。
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+</script>
+</body>
+</html>
