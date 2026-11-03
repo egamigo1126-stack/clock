@@ -6,7 +6,7 @@
 //   - Google Fonts のフォント: 一度取ったら保存してある版を使う（フォントは変わらないので）。
 //
 // 中身を大きく変えたときは CACHE の番号を上げる。古い保存は自動で消える。
-const CACHE = "clock-v1";
+const CACHE = "clock-v2";
 
 // 最初に保存しておくファイルの一覧
 const FILES = [

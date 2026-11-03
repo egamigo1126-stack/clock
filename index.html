@@ -54,7 +54,7 @@ body {
   width: 100%; height: 100%;
   transform: translate(-50%, -50%);
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template: 1fr / 1fr;      /* 1マスだけの格子。時計とボタン列を同じマスに重ねる */
   container-type: size;          /* 中の文字サイズを、この箱の大きさ基準（cq 単位）で決める */
   /* 上下は、スマホのノッチ（画面上部の切り欠き）やホームバーにかからないように空ける */
   padding-top: max(12px, env(safe-area-inset-top, 0px));
@@ -65,8 +65,9 @@ body {
 }
 .stage.rotated { transform: translate(-50%, -50%) rotate(90deg); }
 
-/* 時計エリア: 真ん中に置く */
+/* 時計エリア: ステージ全体を使い、その真ん中に置く（ボタン列の高さに押し上げられない） */
 .face {
+  grid-area: 1 / 1;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -74,7 +75,7 @@ body {
 }
 
 /* デジタル時計 */
-.digital { text-align: center; min-width: 0; }
+.digital { text-align: center; min-width: 0; position: relative; }
 .time {
   font-family: var(--font-num);
   font-weight: var(--num-weight, 200);   /* 太さはフォントごとに JavaScript で設定する */
@@ -85,15 +86,24 @@ body {
 }
 .time .sec { color: var(--sub); }
 .ampm { font-family: var(--font-num); color: var(--sub); }
-.date { color: var(--sub); letter-spacing: 0.08em; margin-top: 0.8em; }
+/* 日付は時刻のすぐ下にぶら下げる。中央ぞろえの計算には入れないので、時刻の数字がちょうど画面の真ん中に来る */
+.date {
+  position: absolute; top: 100%; left: 0; right: 0;
+  color: var(--sub); letter-spacing: 0.08em; margin-top: 0.8em;
+}
 /* 縦長は幅いっぱい、横長は高さも見て大きさを決める */
 .stage.port .time { font-size: 20cqw; }
-.stage.land .time { font-size: min(19cqw, 42cqh); }
+.stage.land .time { font-size: min(19cqw, 30cqh); }   /* 横長は高さが低いので、下のボタン列と重ならない大きさにする */
+.stage.land .hint { display: none; }                 /* 横長はボタン列を低くするため、案内の一文を出さない */
+.stage.land .controls { padding-top: 0; row-gap: 6px; }
 .time .sec, .ampm { font-size: 0.42em; }
 .date { font-size: max(13px, 3.6cqmin); }
 
 /* 下のボタン列 */
 .controls {
+  grid-area: 1 / 1;              /* 時計と同じマスに重ね、下の端にそろえる */
+  align-self: end;
+  position: relative;            /* 時計より手前に表示する */
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
