@@ -184,7 +184,7 @@ button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
       <input type="range" id="size-range" min="40" max="100" step="5" value="100">
       <output id="size-value" for="size-range">100%</output>
     </label>
-    <div class="hint">時計をタップするとボタンを隠せます</div>
+    <div class="hint" id="hint">時計をタップするとボタンを隠せます</div>
   </div>
 </div>
 
@@ -377,14 +377,43 @@ document.querySelector(".face").addEventListener("click", () => {
   document.getElementById("controls").classList.toggle("hide");
 });
 
-// 画面が勝手に消えないようにお願いする（許可されない環境では無視）
+// ---------- 画面を消さない（Wake Lock） ----------
+// Wake Lock: ブラウザに「この画面をスリープさせないで」と頼む仕組み。
+// 考え方:
+//   - iPhone は、画面をタップしたときに頼まないと断ることがある → タップのたびに頼み直す
+//   - 途中で iPhone 側に解除されることがある → 解除されたら、すぐ頼み直す
+//   - 効いているかどうかを、ボタン列の下の一文に表示する
 let wakeLock = null;
-async function keepAwake() {
-  try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (e) {}
+const hintEl = document.getElementById("hint");
+
+// 引数: on（true: 効いている / false: 効いていない / null: 未対応） / 戻り値: なし
+function showWakeState(on) {
+  const state = on === null ? "この端末では未対応（設定の自動ロックを「なし」に）"
+              : on ? "オン" : "オフ（画面をタップするとオン）";
+  hintEl.textContent = `時計をタップするとボタンを隠せます ／ 画面スリープ防止：${state}`;
 }
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") keepAwake();
-});
+
+// 引数: なし / 戻り値: なし
+async function keepAwake() {
+  if (!("wakeLock" in navigator)) { showWakeState(null); return; }
+  if (wakeLock && !wakeLock.released) return;          // すでに効いていれば何もしない
+  if (document.visibilityState !== "visible") return;  // 画面に出ていないときは頼めない
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+    showWakeState(true);
+    // iPhone 側に解除されたら、表示をオフにして頼み直す
+    wakeLock.addEventListener("release", () => {
+      showWakeState(false);
+      setTimeout(keepAwake, 1000);
+    });
+  } catch (e) {
+    showWakeState(false);   // 断られた（低電力モードなど）。次のタップでまた頼む
+  }
+}
+// 別のアプリから戻ってきたとき・画面をタップしたときに頼み直す
+document.addEventListener("visibilitychange", keepAwake);
+document.addEventListener("click", keepAwake);
+document.addEventListener("touchend", keepAwake);
 
 // スマホを回したとき・ウィンドウの大きさが変わったときに並べ直す
 window.addEventListener("resize", layout);
