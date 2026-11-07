@@ -184,7 +184,7 @@ button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
       <input type="range" id="size-range" min="40" max="100" step="5" value="100">
       <output id="size-value" for="size-range">100%</output>
     </label>
-    <div class="hint" id="hint">時計をタップするとボタンを隠せます</div>
+    <div class="hint" id="hint">ボタンは 5 秒で自動で隠れます（時計をタップでまた表示）</div>
   </div>
 </div>
 
@@ -373,8 +373,42 @@ sizeRange.addEventListener("input", () => {
 sizeRange.addEventListener("change", () => saveSettings(settings));
 
 // 時計部分をタップ → ボタン列を隠す／出す
+// ---------- ボタン列を自動で隠す ----------
+// 考え方:
+//   - ボタン列を出してから 5 秒、何も触らなければ自動で隠す
+//   - ボタン列を触っている間（ボタン・つまみ・プルダウン）は、そのたびに 5 秒を数え直す
+//   - プルダウンを開いている最中は隠さない（選んでいる途中で消えないように）
+//   - 隠れているときに時計をタップすると、また出てくる
+const controlsEl = document.getElementById("controls");
+const AUTO_HIDE_MS = 5000;   // 自動で隠れるまでの時間（ミリ秒。5000 = 5 秒）
+let hideTimer = null;
+
+// 引数: なし / 戻り値: なし（5 秒後に隠す予約をし直す）
+function scheduleHide() {
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => {
+    if (document.activeElement && document.activeElement.tagName === "SELECT") {
+      scheduleHide();          // プルダウンで選んでいる最中なら、もう 5 秒待つ
+      return;
+    }
+    controlsEl.classList.add("hide");
+  }, AUTO_HIDE_MS);
+}
+// 引数: なし / 戻り値: なし（ボタン列を出して、5 秒後に隠す予約をする）
+function showControls() {
+  controlsEl.classList.remove("hide");
+  scheduleHide();
+}
+// ボタン列を触ったら、5 秒を数え直す
+["pointerdown", "input", "change", "focusin"].forEach(type =>
+  controlsEl.addEventListener(type, scheduleHide)
+);
+scheduleHide();   // 開いた直後はボタン列を出しておき、5 秒後に隠す
+
+// 時計部分をタップ → 隠れていれば出す／出ていればすぐ隠す
 document.querySelector(".face").addEventListener("click", () => {
-  document.getElementById("controls").classList.toggle("hide");
+  if (controlsEl.classList.contains("hide")) showControls();
+  else { clearTimeout(hideTimer); controlsEl.classList.add("hide"); }
 });
 
 // ---------- 画面を消さない（Wake Lock） ----------
@@ -390,7 +424,7 @@ const hintEl = document.getElementById("hint");
 function showWakeState(on) {
   const state = on === null ? "この端末では未対応（設定の自動ロックを「なし」に）"
               : on ? "オン" : "オフ（画面をタップするとオン）";
-  hintEl.textContent = `時計をタップするとボタンを隠せます ／ 画面スリープ防止：${state}`;
+  hintEl.textContent = `ボタンは 5 秒で自動で隠れます（時計をタップでまた表示） ／ 画面スリープ防止：${state}`;
 }
 
 // 引数: なし / 戻り値: なし
