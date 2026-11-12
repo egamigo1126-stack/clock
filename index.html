@@ -87,10 +87,41 @@ body {
 .time .sec { color: var(--sub); }
 .ampm { font-family: var(--font-num); color: var(--sub); }
 /* 日付は時刻のすぐ下にぶら下げる。中央ぞろえの計算には入れないので、時刻の数字がちょうど画面の真ん中に来る */
-.date {
-  position: absolute; top: 100%; left: 0; right: 0;
-  color: var(--sub); letter-spacing: 0.08em; margin-top: 0.8em;
+.meta { position: absolute; top: 100%; left: 0; right: 0; }
+.date { color: var(--sub); letter-spacing: 0.08em; margin-top: 0.8em; }
+/* アラーム・タイマーの状態（日付の下に小さく出す） */
+.status { color: var(--sub); font-family: var(--font-num); letter-spacing: 0.06em; margin-top: 0.5em; min-height: 1em; }
+.status span + span { margin-left: 1.2em; }
+
+/* 鳴っているときの画面（全面に「停止」ボタン）。点滅させて、音が出ない環境でも気づけるようにする */
+.ring {
+  grid-area: 1 / 1; z-index: 2;
+  display: none; flex-direction: column; align-items: center; justify-content: center; gap: 24px;
+  background: var(--bg); color: var(--fg);
+  animation: blink 1s steps(1) infinite;
 }
+.ring.on { display: flex; }
+.ring .ring-title { font-family: var(--font-num); font-size: min(12cqw, 18cqh); line-height: 1; }
+.ring .ring-sub { color: var(--sub); font-size: 14px; letter-spacing: 0.08em; }
+.ring button {
+  font: 500 18px/1 var(--font-ui); letter-spacing: 0.1em;
+  color: var(--accent-fg); background: var(--accent);
+  border: 0; border-radius: 999px; padding: 18px 56px; cursor: pointer;
+}
+@keyframes blink { 50% { background: var(--fg); color: var(--bg); } }
+@media (prefers-reduced-motion: reduce) { .ring { animation: none; } }
+
+/* アラーム・タイマーの入力欄 */
+.pick input[type="time"], .pick input[type="number"] {
+  font: 500 12px/1 var(--font-ui); color: var(--fg); background: var(--bg);
+  border: 0; padding: 8px 4px;
+}
+.pick input[type="number"] { width: 3.2em; text-align: right; }
+.pick .mini {
+  font: 500 12px/1 var(--font-ui); color: var(--fg); background: transparent;
+  border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; cursor: pointer;
+}
+.pick .mini[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 /* 縦長は幅いっぱい、横長は高さも見て大きさを決める */
 /* --clock-scale は「サイズ」のつまみの値（0.4〜1）。1 のときが画面に収まる最大の大きさ */
 .stage.port .time { font-size: calc(20cqw * var(--clock-scale, 1)); }
@@ -98,7 +129,7 @@ body {
 .stage.land .hint { display: none; }                 /* 横長はボタン列を低くするため、案内の一文を出さない */
 .stage.land .controls { padding-top: 0; row-gap: 6px; }
 .time .sec, .ampm { font-size: 0.42em; }
-.date { font-size: max(11px, calc(3.6cqmin * var(--clock-scale, 1))); }   /* 日付も時刻と一緒に大きさを変える */
+.date, .status { font-size: max(11px, calc(3.6cqmin * var(--clock-scale, 1))); }   /* 日付も時刻と一緒に大きさを変える */
 
 /* 下のボタン列 */
 .controls {
@@ -113,6 +144,10 @@ body {
   transition: opacity .25s;
 }
 .controls.hide { opacity: 0; pointer-events: none; }
+/* 縦画面でボタン列が出ているときは、時計を上に寄せて、ボタンと重ならないようにする */
+.stage.port:has(.controls:not(.hide)) .face { align-items: flex-start; padding-top: 14cqh; }
+.stage.land:has(.controls:not(.hide)) .face { align-items: flex-start; padding-top: 0; }
+.stage.land:has(.controls:not(.hide)) .time { font-size: calc(min(19cqw, 24cqh) * var(--clock-scale, 1)); }
 .group { display: flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
 .group button {
   font: 500 12px/1 var(--font-ui);
@@ -155,8 +190,18 @@ button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
   <div class="face">
     <div class="digital">
       <div class="time" id="time" role="timer" aria-live="off">--:--<span class="sec">:--</span></div>
-      <div class="date" id="date">----</div>
+      <div class="meta">
+        <div class="date" id="date">----</div>
+        <div class="status" id="status"></div>
+      </div>
     </div>
+  </div>
+
+  <!-- 鳴っているときに全面に出す画面 -->
+  <div class="ring" id="ring" role="alertdialog" aria-labelledby="ring-title">
+    <div class="ring-title" id="ring-title">--:--</div>
+    <div class="ring-sub" id="ring-sub">アラーム</div>
+    <button type="button" id="ring-stop">停止</button>
   </div>
 
   <div class="controls" id="controls">
@@ -180,6 +225,14 @@ button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
     <label class="pick">日付
       <select id="date-select"></select>
     </label>
+    <div class="pick">アラーム
+      <input type="time" id="alarm-time" aria-label="アラームの時刻">
+      <button type="button" class="mini" id="alarm-toggle" aria-pressed="false">オフ</button>
+    </div>
+    <div class="pick">タイマー
+      <input type="number" id="timer-min" min="1" max="999" step="1" inputmode="numeric" aria-label="タイマーの分数">分
+      <button type="button" class="mini" id="timer-btn">開始</button>
+    </div>
     <label class="pick size">サイズ
       <input type="range" id="size-range" min="40" max="100" step="5" value="100">
       <output id="size-value" for="size-range">100%</output>
@@ -192,7 +245,10 @@ button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 // ---------- 設定（ブラウザに保存して、次に開いたときも同じにする） ----------
 // 引数: なし / 戻り値: 保存済みの設定（なければ初期値）
 function loadSettings() {
-  const defaults = { orient: "auto", fmt: "24", theme: "auto", font: "Chivo Mono", dateFmt: "slash", size: 100 };
+  // alarmOn: アラームのオン／オフ / alarmTime: 鳴らす時刻 "HH:MM" / alarmLastDay: 最後に鳴らした日（同じ日に2回鳴らさないため）
+  // timerMin: タイマーの分数 / timerEnd: タイマーが終わる時刻（ミリ秒。0 なら止まっている）
+  const defaults = { orient: "auto", fmt: "24", theme: "auto", font: "Chivo Mono", dateFmt: "slash", size: 100,
+                     alarmOn: false, alarmTime: "07:00", alarmLastDay: "", timerMin: 3, timerEnd: 0 };
   try {
     const saved = JSON.parse(localStorage.getItem("clock-settings") || "{}");
     return Object.assign(defaults, saved);
@@ -309,6 +365,7 @@ function tick() {
       (suffix ? ` <span class="ampm">${suffix}</span>` : "");
     // 選ばれている表示形式で日付を書く
     dateEl.textContent = DATE_FORMATS.find(f => f.id === settings.dateFmt).format(now);
+    checkAlarmAndTimer(now);   // 1 秒に 1 回、アラームとタイマーの時間が来たか調べる
   }
   requestAnimationFrame(tick);
 }
@@ -373,6 +430,150 @@ sizeRange.addEventListener("input", () => {
 sizeRange.addEventListener("change", () => saveSettings(settings));
 
 // 時計部分をタップ → ボタン列を隠す／出す
+// ---------- 音を鳴らす（Web Audio） ----------
+// Web Audio: ブラウザの中で音を作って鳴らす機能。音声ファイルがいらないので、電波がなくても鳴る。
+// 注意: iPhone は「画面をタップしたとき」にしか音の再生を始めさせてくれない。
+//       そのため、タップのたびに unlockAudio() を呼んで、音を出せる状態にしておく。
+let audioCtx = null;
+// 引数: なし / 戻り値: なし
+function unlockAudio() {
+  try {
+    // iPhone のマナーモード（消音スイッチ）中でも鳴るようにする設定（対応している iOS だけ）
+    if (navigator.audioSession) navigator.audioSession.type = "playback";
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+  } catch (e) {}
+}
+document.addEventListener("click", unlockAudio);
+document.addEventListener("touchend", unlockAudio);
+
+// 引数: なし / 戻り値: なし（「ピピピッ」を 1 回鳴らす。0.15 秒ずつ 3 回）
+function beepOnce() {
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime;
+  for (let i = 0; i < 3; i++) {
+    const osc = audioCtx.createOscillator();   // 音の波を作る部品
+    const gain = audioCtx.createGain();        // 音量を変える部品
+    osc.type = "square";
+    osc.frequency.value = 1000;                // 1000Hz の「ピッ」という音
+    gain.gain.setValueAtTime(0.25, t0 + i * 0.25);
+    gain.gain.setValueAtTime(0, t0 + i * 0.25 + 0.15);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t0 + i * 0.25);
+    osc.stop(t0 + i * 0.25 + 0.16);
+  }
+}
+
+// ---------- 鳴っているときの画面 ----------
+const ringEl = document.getElementById("ring");
+let ringTimer = null;      // 音をくり返すタイマー
+let ringAutoStop = null;   // 1 分で自動的に止めるタイマー
+// 引数: title（大きく出す文字）, sub（その下の説明） / 戻り値: なし
+function startRinging(title, sub) {
+  document.getElementById("ring-title").textContent = title;
+  document.getElementById("ring-sub").textContent = sub;
+  ringEl.classList.add("on");
+  stopSound();
+  beepOnce();
+  ringTimer = setInterval(beepOnce, 1000);           // 1 秒ごとに「ピピピッ」
+  ringAutoStop = setTimeout(stopRinging, 60 * 1000); // 1 分たったら自動で止める
+}
+// 引数: なし / 戻り値: なし
+function stopSound() {
+  clearInterval(ringTimer);
+  clearTimeout(ringAutoStop);
+}
+// 引数: なし / 戻り値: なし（音と画面を止める）
+function stopRinging() {
+  stopSound();
+  ringEl.classList.remove("on");
+}
+document.getElementById("ring-stop").addEventListener("click", stopRinging);
+
+// ---------- アラーム ----------
+const alarmTimeEl = document.getElementById("alarm-time");
+const alarmToggle = document.getElementById("alarm-toggle");
+alarmTimeEl.value = settings.alarmTime;
+// 引数: なし / 戻り値: なし（オン／オフのボタンの見た目を合わせる）
+function refreshAlarm() {
+  alarmToggle.setAttribute("aria-pressed", settings.alarmOn);
+  alarmToggle.textContent = settings.alarmOn ? "オン" : "オフ";
+  refreshStatus();
+}
+alarmToggle.addEventListener("click", () => {
+  settings.alarmOn = !settings.alarmOn;
+  settings.alarmLastDay = "";   // オンにし直したら、今日の分もまた鳴らせるようにする
+  saveSettings(settings);
+  refreshAlarm();
+});
+alarmTimeEl.addEventListener("change", () => {
+  if (!alarmTimeEl.value) return;
+  settings.alarmTime = alarmTimeEl.value;
+  settings.alarmOn = true;      // 時刻を選んだら、自動でオンにする
+  settings.alarmLastDay = "";
+  saveSettings(settings);
+  refreshAlarm();
+});
+
+// ---------- タイマー ----------
+const timerMinEl = document.getElementById("timer-min");
+const timerBtn = document.getElementById("timer-btn");
+timerMinEl.value = settings.timerMin;
+// 引数: なし / 戻り値: なし（開始／停止のボタンの見た目を合わせる）
+function refreshTimer() {
+  timerBtn.textContent = settings.timerEnd ? "停止" : "開始";
+  timerBtn.setAttribute("aria-pressed", !!settings.timerEnd);
+  refreshStatus();
+}
+timerBtn.addEventListener("click", () => {
+  if (settings.timerEnd) {
+    settings.timerEnd = 0;      // 動いていれば止める
+  } else {
+    const min = Math.min(999, Math.max(1, Math.round(Number(timerMinEl.value) || 3)));
+    timerMinEl.value = settings.timerMin = min;
+    settings.timerEnd = Date.now() + min * 60 * 1000;   // 終わる時刻 = 今 + 分数
+  }
+  saveSettings(settings);
+  refreshTimer();
+});
+
+// ---------- 日付の下の状態表示 ----------
+const statusEl = document.getElementById("status");
+// 引数: なし / 戻り値: なし（「⏰ 07:00」「残り 2:59」を書く）
+function refreshStatus() {
+  const parts = [];
+  if (settings.alarmOn) parts.push(`アラーム ${settings.alarmTime}`);
+  if (settings.timerEnd) {
+    const left = Math.max(0, Math.ceil((settings.timerEnd - Date.now()) / 1000));   // 残りの秒数
+    const h = Math.floor(left / 3600), m = Math.floor(left % 3600 / 60), s = left % 60;
+    parts.push(`タイマー 残り ${h ? h + ":" + pad(m) : m}:${pad(s)}`);
+  }
+  statusEl.innerHTML = parts.map(p => `<span>${p}</span>`).join("");
+}
+
+// 引数: now（今の日時） / 戻り値: なし（tick() から 1 秒に 1 回呼ばれる）
+function checkAlarmAndTimer(now) {
+  // アラーム: 時刻が一致して、今日まだ鳴らしていなければ鳴らす
+  const hm = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const today = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+  if (settings.alarmOn && hm === settings.alarmTime && settings.alarmLastDay !== today) {
+    settings.alarmLastDay = today;
+    saveSettings(settings);
+    startRinging(settings.alarmTime, "アラーム");
+  }
+  // タイマー: 終わる時刻を過ぎたら鳴らす
+  if (settings.timerEnd && Date.now() >= settings.timerEnd) {
+    settings.timerEnd = 0;
+    saveSettings(settings);
+    refreshTimer();
+    startRinging(`${settings.timerMin}分`, "タイマー終了");
+  }
+  refreshStatus();
+}
+
+refreshAlarm();
+refreshTimer();
+
 // ---------- ボタン列を自動で隠す ----------
 // 考え方:
 //   - ボタン列を出してから 5 秒、何も触らなければ自動で隠す
@@ -387,8 +588,9 @@ let hideTimer = null;
 function scheduleHide() {
   clearTimeout(hideTimer);
   hideTimer = setTimeout(() => {
-    if (document.activeElement && document.activeElement.tagName === "SELECT") {
-      scheduleHide();          // プルダウンで選んでいる最中なら、もう 5 秒待つ
+    // プルダウン・時刻・分数を入力している最中なら、もう 5 秒待つ
+    if (document.activeElement && document.activeElement.matches("select, input[type=time], input[type=number]")) {
+      scheduleHide();
       return;
     }
     controlsEl.classList.add("hide");
