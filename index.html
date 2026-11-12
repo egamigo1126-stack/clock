@@ -438,8 +438,7 @@ let audioCtx = null;
 // 引数: なし / 戻り値: なし
 function unlockAudio() {
   try {
-    // iPhone のマナーモード（消音スイッチ）中でも鳴るようにする設定（対応している iOS だけ）
-    if (navigator.audioSession) navigator.audioSession.type = "playback";
+    // マナーモード中は鳴らさない（iPhone の初期の動きのまま。消音スイッチに従う）
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === "suspended") audioCtx.resume();
   } catch (e) {}
